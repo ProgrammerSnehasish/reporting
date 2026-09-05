@@ -1,0 +1,869 @@
+// ============================================================================
+// Prisma Schema — Luminia Lifecare "Reporting" (Field Force / DCR) System
+// Reverse-engineered from the uploaded PHP + MySQL codebase (reporting.zip)
+// Datasource switched from MySQL -> NeonDB (PostgreSQL)
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// MASTER / LOOKUP TABLES
+// ============================================================================
+
+/// System roles: superadmin, admin, mr, abm, rbm, zsm, nsm, franchise
+model Role {
+  id        Int      @id @default(autoincrement())
+  roleName  String   @map("role_name") @db.VarChar(100)
+  roleCode  String   @unique @map("role_code") @db.VarChar(50)
+  status    Int      @default(1)
+
+  users     User[]
+
+  @@map("tbl_roles")
+}
+
+model Designation {
+  id                Int        @id @default(autoincrement())
+  designationCode   String?    @map("designation_code") @db.VarChar(50)
+  designationName   String     @map("designation_name") @db.VarChar(150)
+  status            Int        @default(1)
+
+  employees         Employee[]
+
+  @@map("tbl_designations")
+}
+
+model Degree {
+  id         Int       @id @default(autoincrement())
+  degreeName String    @map("degree_name") @db.VarChar(150)
+  status     Int       @default(1)
+
+  doctors    Doctor[]
+
+  @@map("tbl_degrees")
+}
+
+model Specialization {
+  id                  Int       @id @default(autoincrement())
+  specializationName  String    @map("specialization_name") @db.VarChar(150)
+  status              Int       @default(1)
+
+  doctors             Doctor[]
+
+  @@map("tbl_specializations")
+}
+
+model DoctorCategory {
+  id            Int       @id @default(autoincrement())
+  categoryName  String    @map("category_name") @db.VarChar(150)
+  status        Int       @default(1)
+
+  doctors       Doctor[]
+
+  @@map("tbl_doctor_categories")
+}
+
+model BusinessPotential {
+  id             Int       @id @default(autoincrement())
+  potentialName  String    @map("potential_name") @db.VarChar(150)
+  status         Int       @default(1)
+
+  doctors        Doctor[]
+
+  @@map("tbl_business_potentials")
+}
+
+model ChemistType {
+  id         Int        @id @default(autoincrement())
+  typeName   String     @map("type_name") @db.VarChar(150)
+  status     Int        @default(1)
+
+  chemists   Chemist[]
+
+  @@map("tbl_chemist_types")
+}
+
+model CallType {
+  id            Int      @id @default(autoincrement())
+  callTypeName  String   @map("call_type_name") @db.VarChar(150)
+  status        Int      @default(1)
+
+  doctorCalls   DcrDoctorCall[]
+
+  @@map("tbl_call_types")
+}
+
+model WorkingType {
+  id                 Int                @id @default(autoincrement())
+  workingTypeName    String             @map("working_type_name") @db.VarChar(150)
+  status             Int                @default(1)
+
+  dcrs               Dcr[]
+  tourPlanDetails    TourPlanDetail[]
+
+  @@map("tbl_working_types")
+}
+
+model ProductCategory {
+  id            Int        @id @default(autoincrement())
+  categoryName  String     @map("category_name") @db.VarChar(150)
+  status        Int        @default(1)
+
+  products      Product[]
+
+  @@map("tbl_product_categories")
+}
+
+model Division {
+  id            Int        @id @default(autoincrement())
+  divisionName  String     @map("division_name") @db.VarChar(150)
+  status        Int        @default(1)
+
+  products      Product[]
+
+  @@map("tbl_divisions")
+}
+
+// ============================================================================
+// GEOGRAPHY / TERRITORY
+// ============================================================================
+
+/// Self-referential: sub-areas point to a parent HQ area (area_type = "HQ")
+model Area {
+  id          Int      @id @default(autoincrement())
+  areaCode    String?  @map("area_code") @db.VarChar(50)
+  areaName    String   @map("area_name") @db.VarChar(150)
+  areaType    String   @map("area_type") @db.VarChar(50) // "HQ" or sub-area type
+  hqId        Int?     @map("hq_id")
+  kmFromHq    Decimal? @map("km_from_hq") @db.Decimal(10, 2)
+  status      Int      @default(1)
+  createdBy   Int?     @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedBy   Int?     @map("updated_by")
+  updatedAt   DateTime? @updatedAt @map("updated_at")
+
+  hq          Area?    @relation("AreaHierarchy", fields: [hqId], references: [id])
+  subAreas    Area[]   @relation("AreaHierarchy")
+
+  createdByUser User?  @relation("AreaCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser User?  @relation("AreaUpdatedBy", fields: [updatedBy], references: [id])
+
+  employeesAsArea    Employee[]       @relation("EmployeeArea")
+  employeesAsHq      Employee[]       @relation("EmployeeHq")
+  chemistsAsArea     Chemist[]        @relation("ChemistArea")
+  chemistsAsHq       Chemist[]        @relation("ChemistHq")
+  clinicsAsArea      Clinic[]         @relation("ClinicArea")
+  clinicsAsHq        Clinic[]         @relation("ClinicHq")
+  doctors            Doctor[]
+  dcrsAsArea         Dcr[]            @relation("DcrArea")
+  dcrsAsHq           Dcr[]            @relation("DcrHq")
+  dcrExpensesAsArea  DcrExpense[]     @relation("DcrExpenseArea")
+  dcrExpensesAsHq    DcrExpense[]     @relation("DcrExpenseHq")
+  tourPlanDetails    TourPlanDetail[]
+
+  @@map("tbl_areas")
+}
+
+// ============================================================================
+// USERS & EMPLOYEES
+// ============================================================================
+
+model Employee {
+  id                  Int        @id @default(autoincrement())
+  employeeCode        String     @unique @map("employee_code") @db.VarChar(50)
+  designationId       Int?       @map("designation_id")
+  reportingTo         Int?       @map("reporting_to")
+  firstName           String     @map("first_name") @db.VarChar(100)
+  lastName             String?    @map("last_name") @db.VarChar(100)
+  gender              String?    @db.VarChar(20)
+  dob                 DateTime?  @db.Date
+  doa                 DateTime?  @db.Date
+  mobile              String?    @db.VarChar(20)
+  alternateMobile     String?    @map("alternate_mobile") @db.VarChar(20)
+  aadhaarNo           String?    @map("aadhaar_no") @db.VarChar(20)
+  panNo               String?    @map("pan_no") @db.VarChar(20)
+  personalEmail       String?    @map("personal_email") @db.VarChar(150)
+  officialEmail       String?    @map("official_email") @db.VarChar(150)
+  photo               String?    @db.VarChar(255)
+  joiningDate         DateTime?  @map("joining_date") @db.Date
+  dateOfLeaving       DateTime?  @map("date_of_leaving") @db.Date
+  employeeType        String?    @map("employee_type") @db.VarChar(50)
+  zone                String?    @db.VarChar(100)
+  region              String?    @db.VarChar(100)
+  areaId              Int?       @map("area_id")
+  hqId                Int?       @map("hq_id")
+  address             String?    @db.Text
+  bankName            String?    @map("bank_name") @db.VarChar(150)
+  branchName          String?    @map("branch_name") @db.VarChar(150)
+  accountHolderName   String?    @map("account_holder_name") @db.VarChar(150)
+  accountNo           String?    @map("account_no") @db.VarChar(50)
+  ifscCode            String?    @map("ifsc_code") @db.VarChar(20)
+  upiId               String?    @map("upi_id") @db.VarChar(100)
+  uanNo               String?    @map("uan_no") @db.VarChar(50)
+  remarks             String?    @db.Text
+  status              Int        @default(1)
+  createdBy           Int?       @map("created_by")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedBy           Int?       @map("updated_by")
+  updatedAt           DateTime?  @updatedAt @map("updated_at")
+
+  designation         Designation? @relation(fields: [designationId], references: [id])
+  reportsTo           Employee?    @relation("EmployeeHierarchy", fields: [reportingTo], references: [id])
+  subordinates        Employee[]   @relation("EmployeeHierarchy")
+  area                Area?        @relation("EmployeeArea", fields: [areaId], references: [id])
+  hq                  Area?        @relation("EmployeeHq", fields: [hqId], references: [id])
+
+  user                User?
+
+  @@map("tbl_employees")
+}
+
+/// Login credentials + role mapping. Every employee has at most one login user.
+/// Seed accounts referenced by the business:
+///   Admin  -> username: admin,  password: 12345
+///   MR001 (Rahul Das)    -> username: mr001,  password: 12345
+///   MR002 (Rohit Sharma) -> username: mr002,  password: 12345
+///   MR003 (Sanju Samson) -> username: mr003,  password: 123456
+///   ABM    -> username: abm001, password: 123456
+///   RBM    -> username: rbm001, password: 12345
+/// NOTE: passwords must be hashed (password_hash / bcrypt) before insert — never stored in plaintext.
+model User {
+  id                    Int       @id @default(autoincrement())
+  employeeId            Int       @unique @map("employee_id")
+  roleId                Int       @map("role_id")
+  username              String    @unique @db.VarChar(100)
+  email                 String?   @unique @db.VarChar(150)
+  mobile                String?   @unique @db.VarChar(20)
+  password              String    @db.VarChar(255)
+  failedLoginAttempts   Int       @default(0) @map("failed_login_attempts")
+  isLocked              Int       @default(0) @map("is_locked")
+  isFirstLogin          Int       @default(1) @map("is_first_login")
+  passwordChangedAt     DateTime? @map("password_changed_at")
+  lastLogin             DateTime? @map("last_login")
+  loginIp               String?   @map("login_ip") @db.VarChar(64)
+  loginDevice           String?   @map("login_device") @db.Text
+  status                Int       @default(1)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime? @updatedAt @map("updated_at")
+
+  employee              Employee  @relation(fields: [employeeId], references: [id])
+  role                  Role      @relation(fields: [roleId], references: [id])
+
+  // reverse relations (created_by / updated_by audit trails across the app)
+  areasCreated          Area[]                @relation("AreaCreatedBy")
+  areasUpdated          Area[]                @relation("AreaUpdatedBy")
+
+  managerMappings       UserMapping[]         @relation("MappingManager")
+  employeeMappings      UserMapping[]         @relation("MappingEmployee")
+
+  dcrsAsMr              Dcr[]                 @relation("DcrMr")
+  dcrsApprovedByAbm     Dcr[]                 @relation("DcrAbmApprover")
+  dcrsApprovedByRbm     Dcr[]                 @relation("DcrRbmApprover")
+
+  tourPlansAsMr         TourPlan[]            @relation("TourPlanMr")
+  tourPlansApprovedByAbm TourPlan[]           @relation("TourPlanAbmApprover")
+  tourPlansApprovedByRbm TourPlan[]           @relation("TourPlanRbmApprover")
+  tourPlansApprovedBy   TourPlan[]            @relation("TourPlanApprover")
+
+  dayPlansAsMr          DayPlan[]             @relation("DayPlanMr")
+
+  targetsAsMr           TargetDetail[]        @relation("TargetMr")
+
+  messagesSent          Message[]             @relation("MessageSender")
+  messagesReceived      MessageReceiver[]     @relation("MessageReceiverUser")
+
+  attendances           Attendance[]
+
+  @@map("tbl_users")
+}
+
+/// Manager <-> subordinate mapping between two users (e.g. MR reports to ABM)
+model UserMapping {
+  id               Int       @id @default(autoincrement())
+  managerUserId    Int       @map("manager_user_id")
+  employeeUserId   Int       @map("employee_user_id")
+  status           Int       @default(1)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime? @updatedAt @map("updated_at")
+
+  manager          User      @relation("MappingManager", fields: [managerUserId], references: [id])
+  employeeUser     User      @relation("MappingEmployee", fields: [employeeUserId], references: [id])
+
+  @@map("tbl_user_mapping")
+}
+
+// ============================================================================
+// DOCTORS / CHEMISTS / STOCKISTS / CLINICS
+// ============================================================================
+
+model Doctor {
+  id                    Int       @id @default(autoincrement())
+  areaId                Int?      @map("area_id")
+  doctorCode            String?   @unique @map("doctor_code") @db.VarChar(50)
+  doctorName            String    @map("doctor_name") @db.VarChar(150)
+  gender                String?   @db.VarChar(20)
+  mobile                String?   @db.VarChar(20)
+  alternateMobile       String?   @map("alternate_mobile") @db.VarChar(20)
+  email                 String?   @db.VarChar(150)
+  dateOfBirth           DateTime? @map("date_of_birth") @db.Date
+  anniversaryDate       DateTime? @map("anniversary_date") @db.Date
+  aadharNo              String?   @map("aadhar_no") @db.VarChar(20)
+  categoryId            Int?      @map("category_id")
+  degreeId              Int?      @map("degree_id")
+  specializationId      Int?      @map("specialization_id")
+  businessPotentialId   Int?      @map("business_potential_id")
+  hospitalName          String?   @map("hospital_name") @db.VarChar(150)
+  clinicName            String?   @map("clinic_name") @db.VarChar(150)
+  address               String?   @db.Text
+  latitude              Decimal?  @db.Decimal(10, 7)
+  longitude             Decimal?  @db.Decimal(10, 7)
+  remarks               String?   @db.Text
+  status                Int       @default(1)
+  createdBy             Int?      @map("created_by")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedBy             Int?      @map("updated_by")
+  updatedAt             DateTime? @updatedAt @map("updated_at")
+
+  area                  Area?             @relation(fields: [areaId], references: [id])
+  category              DoctorCategory?   @relation(fields: [categoryId], references: [id])
+  degree                Degree?           @relation(fields: [degreeId], references: [id])
+  specialization        Specialization?   @relation(fields: [specializationId], references: [id])
+  businessPotential     BusinessPotential? @relation(fields: [businessPotentialId], references: [id])
+
+  clinics               Clinic[]
+  dcrDoctorCalls        DcrDoctorCall[]
+
+  @@map("tbl_doctors")
+}
+
+/// Chemists AND stockists are stored in the same table, differentiated by chemist_type_id
+model Chemist {
+  id                 Int       @id @default(autoincrement())
+  areaId             Int?      @map("area_id")
+  hqId               Int?      @map("hq_id")
+  chemistTypeId      Int?      @map("chemist_type_id")
+  chemistCode        String?   @unique @map("chemist_code") @db.VarChar(50)
+  chemistName        String    @map("chemist_name") @db.VarChar(150)
+  mobile             String?   @db.VarChar(20)
+  aadharNo           String?   @map("aadhar_no") @db.VarChar(20)
+  address            String?   @db.Text
+  remarks            String?   @db.Text
+  status             Int       @default(1)
+  createdBy          Int?      @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedBy          Int?      @map("updated_by")
+  updatedAt          DateTime? @updatedAt @map("updated_at")
+
+  area               Area?         @relation("ChemistArea", fields: [areaId], references: [id])
+  hq                 Area?         @relation("ChemistHq", fields: [hqId], references: [id])
+  chemistType        ChemistType?  @relation(fields: [chemistTypeId], references: [id])
+
+  dcrChemistCalls    DcrChemistCall[]   @relation("ChemistCall")
+  dcrStockistCalls   DcrStockistCall[]  @relation("StockistCall")
+
+  @@map("tbl_chemists")
+}
+
+model Clinic {
+  id             Int       @id @default(autoincrement())
+  areaId         Int?      @map("area_id")
+  hqId           Int?      @map("hq_id")
+  doctorId       Int?      @map("doctor_id")
+  clinicCode     String?   @unique @map("clinic_code") @db.VarChar(50)
+  clinicName     String    @map("clinic_name") @db.VarChar(150)
+  contactPerson  String?   @map("contact_person") @db.VarChar(150)
+  mobile         String?   @db.VarChar(20)
+  email          String?   @db.VarChar(150)
+  address        String?   @db.Text
+  latitude       Decimal?  @db.Decimal(10, 7)
+  longitude      Decimal?  @db.Decimal(10, 7)
+  remarks        String?   @db.Text
+  status         Int       @default(1)
+  createdBy      Int?      @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedBy      Int?      @map("updated_by")
+  updatedAt      DateTime? @updatedAt @map("updated_at")
+
+  area           Area?     @relation("ClinicArea", fields: [areaId], references: [id])
+  hq             Area?     @relation("ClinicHq", fields: [hqId], references: [id])
+  doctor         Doctor?   @relation(fields: [doctorId], references: [id])
+
+  @@map("tbl_clinics")
+}
+
+// ============================================================================
+// PRODUCTS / GIFTS / PAIN MANAGEMENT PRODUCTS
+// ============================================================================
+
+model Product {
+  id                Int       @id @default(autoincrement())
+  productCode       String?   @unique @map("product_code") @db.VarChar(50)
+  productName       String    @map("product_name") @db.VarChar(150)
+  brandName         String?   @map("brand_name") @db.VarChar(150)
+  genericName       String?   @map("generic_name") @db.VarChar(150)
+  categoryId        Int?      @map("category_id")
+  divisionId        Int?      @map("division_id")
+  dosageForm        String?   @map("dosage_form") @db.VarChar(100)
+  strength          String?   @db.VarChar(100)
+  pack              String?   @db.VarChar(100)
+  mrp               Decimal?  @db.Decimal(10, 2)
+  ptr               Decimal?  @db.Decimal(10, 2)
+  pts               Decimal?  @db.Decimal(10, 2)
+  gst               Decimal?  @db.Decimal(5, 2)
+  hsnCode           String?   @map("hsn_code") @db.VarChar(20)
+  bonusOffer        String?   @map("bonus_offer") @db.VarChar(150)
+  manufacturer      String?   @db.VarChar(150)
+  stockQuantity     Int       @default(0) @map("stock_quantity")
+  isFocusProduct    Int       @default(0) @map("is_focus_product")
+  displayOrder      Int?      @map("display_order")
+  remarks           String?   @db.Text
+  status            Int       @default(1)
+  createdBy         Int?      @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedBy         Int?      @map("updated_by")
+  updatedAt         DateTime? @updatedAt @map("updated_at")
+
+  category          ProductCategory? @relation(fields: [categoryId], references: [id])
+  division          Division?        @relation(fields: [divisionId], references: [id])
+
+  targetDetails       TargetDetail[]
+  dcrDoctorProducts   DcrDoctorProduct[]
+  dcrChemistProducts  DcrChemistProduct[]
+  dcrStockistProducts DcrStockistProduct[]
+
+  @@map("tbl_products")
+}
+
+model Gift {
+  id             Int       @id @default(autoincrement())
+  giftCode       String?   @unique @map("gift_code") @db.VarChar(50)
+  giftName       String    @map("gift_name") @db.VarChar(150)
+  brandName      String?   @map("brand_name") @db.VarChar(150)
+  giftCategory   String?   @map("gift_category") @db.VarChar(100)
+  giftValue      Decimal?  @map("gift_value") @db.Decimal(10, 2)
+  stockQuantity  Int       @default(0) @map("stock_quantity")
+  remarks        String?   @db.Text
+  status         Int       @default(1)
+  createdBy      Int?      @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedBy      Int?      @map("updated_by")
+  updatedAt      DateTime? @updatedAt @map("updated_at")
+
+  dcrGifts       DcrGift[]
+
+  @@map("tbl_gifts")
+}
+
+model PainManagementProduct {
+  id                Int       @id @default(autoincrement())
+  productCode       String?   @unique @map("product_code") @db.VarChar(50)
+  painProductName   String    @map("pain_product_name") @db.VarChar(150)
+  description       String?   @db.Text
+  remarks           String?   @db.Text
+  status            Int       @default(1)
+  createdBy         Int?      @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedBy         Int?      @map("updated_by")
+  updatedAt         DateTime? @updatedAt @map("updated_at")
+
+  dcrPainManagements DcrDoctorCallPainManagement[]
+
+  @@map("tbl_pain_management_products")
+}
+
+// ============================================================================
+// DCR (Daily Call Report) — MASTER + CHILD CALL TABLES
+// ============================================================================
+
+/// Master daily call report submitted by an MR; moves through an
+/// approval workflow: MR -> ABM -> RBM (-> ZSM, planned).
+/// status observed values: 'Submitted', 'ABM Approved', 'RBM Approved', 'Rejected', etc.
+/// current_level observed values: 'ABM', 'RBM', 'ZSM'
+model Dcr {
+  id                    Int       @id @default(autoincrement())
+  dcrNo                 String    @unique @map("dcr_no") @db.VarChar(50)
+  mrId                  Int       @map("mr_id")
+  areaId                Int?      @map("area_id")
+  hqId                  Int?      @map("hq_id")
+  visitDate             DateTime  @map("visit_date") @db.Date
+  workingTypeId         Int?      @map("working_type_id")
+  workingWithUserId     String?   @map("working_with_user_id") @db.VarChar(255) // comma-separated user ids
+  totalKm               Decimal?  @map("total_km") @db.Decimal(10, 2)
+  travelExpense         Decimal?  @map("travel_expense") @db.Decimal(10, 2)
+  startLatitude         Decimal?  @map("start_latitude") @db.Decimal(10, 7)
+  startLongitude        Decimal?  @map("start_longitude") @db.Decimal(10, 7)
+  endLatitude           Decimal?  @map("end_latitude") @db.Decimal(10, 7)
+  endLongitude          Decimal?  @map("end_longitude") @db.Decimal(10, 7)
+  doctorCallCount       Int       @default(0) @map("doctor_call_count")
+  chemistCallCount      Int       @default(0) @map("chemist_call_count")
+  stockistCallCount     Int       @default(0) @map("stockist_call_count")
+  remarks               String?   @db.Text
+  achievement           String?   @db.Text
+  status                String?   @default("Submitted") @db.VarChar(50)
+  currentLevel          String?   @map("current_level") @db.VarChar(50)
+  abmUserId             Int?      @map("abm_user_id")
+  abmApprovedAt         DateTime? @map("abm_approved_at")
+  rbmUserId             Int?      @map("rbm_user_id")
+  rbmApprovedAt         DateTime? @map("rbm_approved_at")
+  submittedAt           DateTime? @map("submitted_at")
+  submissionIp          String?   @map("submission_ip") @db.VarChar(64)
+  submissionDevice      String?   @map("submission_device") @db.Text
+  createdBy             Int?      @map("created_by")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedBy             Int?      @map("updated_by")
+  updatedAt             DateTime? @updatedAt @map("updated_at")
+
+  mr                    User          @relation("DcrMr", fields: [mrId], references: [id])
+  area                  Area?         @relation("DcrArea", fields: [areaId], references: [id])
+  hq                    Area?         @relation("DcrHq", fields: [hqId], references: [id])
+  workingType           WorkingType?  @relation(fields: [workingTypeId], references: [id])
+  abmApprover           User?         @relation("DcrAbmApprover", fields: [abmUserId], references: [id])
+  rbmApprover           User?         @relation("DcrRbmApprover", fields: [rbmUserId], references: [id])
+
+  doctorCalls           DcrDoctorCall[]
+  chemistCalls          DcrChemistCall[]
+  stockistCalls         DcrStockistCall[]
+  expense               DcrExpense?
+  attendances           Attendance[]
+
+  @@map("tbl_dcr")
+}
+
+model DcrDoctorCall {
+  id             Int       @id @default(autoincrement())
+  dcrId          Int       @map("dcr_id")
+  doctorId       Int       @map("doctor_id")
+  callTypeId     Int?      @map("call_type_id")
+  visitTime      DateTime? @map("visit_time") @db.Time
+  remarks        String?   @db.Text
+  createdBy      Int?      @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  dcr            Dcr       @relation(fields: [dcrId], references: [id], onDelete: Cascade)
+  doctor         Doctor    @relation(fields: [doctorId], references: [id])
+  callType       CallType? @relation(fields: [callTypeId], references: [id])
+
+  products       DcrDoctorProduct[]
+  gifts          DcrGift[]
+  painManagements DcrDoctorCallPainManagement[]
+
+  @@map("tbl_dcr_doctor_calls")
+}
+
+model DcrDoctorProduct {
+  id             Int      @id @default(autoincrement())
+  doctorCallId   Int      @map("doctor_call_id")
+  productId      Int      @map("product_id")
+  quantity       Int      @default(0)
+  createdBy      Int?     @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  doctorCall     DcrDoctorCall @relation(fields: [doctorCallId], references: [id], onDelete: Cascade)
+  product        Product       @relation(fields: [productId], references: [id])
+
+  @@map("tbl_dcr_doctor_products")
+}
+
+model DcrDoctorCallPainManagement {
+  id             Int      @id @default(autoincrement())
+  doctorCallId   Int      @map("doctor_call_id")
+  painProductId  Int      @map("pain_product_id")
+  quantity       Int      @default(0)
+  createdBy      Int?     @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  doctorCall     DcrDoctorCall          @relation(fields: [doctorCallId], references: [id], onDelete: Cascade)
+  painProduct    PainManagementProduct  @relation(fields: [painProductId], references: [id])
+
+  @@map("tbl_dcr_doctor_call_pain_management")
+}
+
+model DcrGift {
+  id                 Int      @id @default(autoincrement())
+  dcrDoctorCallId    Int      @map("dcr_doctor_call_id")
+  giftId             Int      @map("gift_id")
+  quantity           Int      @default(0)
+  createdBy          Int?     @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  doctorCall         DcrDoctorCall @relation(fields: [dcrDoctorCallId], references: [id], onDelete: Cascade)
+  gift               Gift          @relation(fields: [giftId], references: [id])
+
+  @@map("tbl_dcr_gifts")
+}
+
+model DcrChemistCall {
+  id             Int       @id @default(autoincrement())
+  dcrId          Int       @map("dcr_id")
+  chemistId      Int       @map("chemist_id")
+  visitTime      DateTime? @map("visit_time") @db.Time
+  pob            Decimal?  @db.Decimal(10, 2)
+  bookingValue   Decimal?  @map("booking_value") @db.Decimal(10, 2)
+  remarks        String?   @db.Text
+  createdBy      Int?      @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  dcr            Dcr       @relation(fields: [dcrId], references: [id], onDelete: Cascade)
+  chemist        Chemist   @relation("ChemistCall", fields: [chemistId], references: [id])
+
+  products       DcrChemistProduct[]
+
+  @@map("tbl_dcr_chemist_calls")
+}
+
+model DcrChemistProduct {
+  id              Int      @id @default(autoincrement())
+  chemistCallId   Int      @map("chemist_call_id")
+  productId       Int      @map("product_id")
+  createdBy       Int?     @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  chemistCall     DcrChemistCall @relation(fields: [chemistCallId], references: [id], onDelete: Cascade)
+  product         Product        @relation(fields: [productId], references: [id])
+
+  @@map("tbl_dcr_chemist_products")
+}
+
+model DcrStockistCall {
+  id             Int       @id @default(autoincrement())
+  dcrId          Int       @map("dcr_id")
+  stockistId     Int       @map("stockist_id") // FK -> tbl_chemists.id (chemist_type differentiates stockist)
+  visitTime      DateTime? @map("visit_time") @db.Time
+  primaryOrder   Decimal?  @map("primary_order") @db.Decimal(10, 2)
+  remarks        String?   @db.Text
+  createdBy      Int?      @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  dcr            Dcr       @relation(fields: [dcrId], references: [id], onDelete: Cascade)
+  stockist       Chemist   @relation("StockistCall", fields: [stockistId], references: [id])
+
+  products       DcrStockistProduct[]
+
+  @@map("tbl_dcr_stockist_calls")
+}
+
+model DcrStockistProduct {
+  id               Int      @id @default(autoincrement())
+  stockistCallId   Int      @map("stockist_call_id")
+  productId        Int      @map("product_id")
+  createdBy        Int?     @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  stockistCall     DcrStockistCall @relation(fields: [stockistCallId], references: [id], onDelete: Cascade)
+  product          Product         @relation(fields: [productId], references: [id])
+
+  @@map("tbl_dcr_stockist_products")
+}
+
+/// Expense claim generated from (or independently raised against) a DCR
+model DcrExpense {
+  id             Int       @id @default(autoincrement())
+  dcrId          Int?      @unique @map("dcr_id")
+  mrId           Int?      @map("mr_id")
+  areaId         Int?      @map("area_id")
+  hqId           Int?      @map("hq_id")
+  totalKm        Decimal?  @map("total_km") @db.Decimal(10, 2)
+  perKmRate      Decimal?  @map("per_km_rate") @db.Decimal(10, 2)
+  travelExpense  Decimal?  @map("travel_expense") @db.Decimal(10, 2)
+  daExpense      Decimal?  @map("da_expense") @db.Decimal(10, 2)
+  hotelExpense   Decimal?  @map("hotel_expense") @db.Decimal(10, 2)
+  foodExpense    Decimal?  @map("food_expense") @db.Decimal(10, 2)
+  otherExpense   Decimal?  @map("other_expense") @db.Decimal(10, 2)
+  totalExpense   Decimal?  @map("total_expense") @db.Decimal(10, 2)
+  remarks        String?   @db.Text
+  status         String?   @default("Submitted") @db.VarChar(50)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime? @updatedAt @map("updated_at")
+
+  dcr            Dcr?      @relation(fields: [dcrId], references: [id])
+  area           Area?     @relation("DcrExpenseArea", fields: [areaId], references: [id])
+  hq             Area?     @relation("DcrExpenseHq", fields: [hqId], references: [id])
+
+  @@map("tbl_dcr_expenses")
+}
+
+// ============================================================================
+// ATTENDANCE
+// ============================================================================
+
+model Attendance {
+  id                 Int       @id @default(autoincrement())
+  employeeId         Int       @map("employee_id")
+  dcrId              Int?      @map("dcr_id")
+  attendanceDate     DateTime  @map("attendance_date") @db.Date
+  checkInTime        DateTime? @map("check_in_time") @db.Time
+  latitude           Decimal?  @db.Decimal(10, 7)
+  longitude          Decimal?  @db.Decimal(10, 7)
+  attendanceStatus   String?   @map("attendance_status") @db.VarChar(50) // e.g. Present
+  source             String?   @db.VarChar(50) // e.g. DCR, Manual
+  remarks            String?   @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  employeeUser       User      @relation(fields: [employeeId], references: [id])
+  dcr                Dcr?      @relation(fields: [dcrId], references: [id])
+
+  @@map("tbl_attendance")
+}
+
+// ============================================================================
+// TOUR PLANS (monthly) & DAY PLANS
+// ============================================================================
+
+/// Monthly tour plan header submitted by an MR; approval chain: MR -> ABM -> RBM -> ADMIN
+model TourPlan {
+  id                Int       @id @default(autoincrement())
+  mrId              Int       @map("mr_id")
+  month             Int
+  year              Int
+  status            String?   @default("1") @db.VarChar(50)
+  currentLevel      String?   @map("current_level") @db.VarChar(50)
+  abmUserId         Int?      @map("abm_user_id")
+  abmApprovedAt     DateTime? @map("abm_approved_at")
+  rbmUserId         Int?      @map("rbm_user_id")
+  rbmApprovedAt     DateTime? @map("rbm_approved_at")
+  approvedBy        Int?      @map("approved_by")
+  approvedAt        DateTime? @map("approved_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime? @updatedAt @map("updated_at")
+
+  mr                User      @relation("TourPlanMr", fields: [mrId], references: [id])
+  abmApprover       User?     @relation("TourPlanAbmApprover", fields: [abmUserId], references: [id])
+  rbmApprover       User?     @relation("TourPlanRbmApprover", fields: [rbmUserId], references: [id])
+  approver          User?     @relation("TourPlanApprover", fields: [approvedBy], references: [id])
+
+  details           TourPlanDetail[]
+
+  @@map("tbl_tour_plans")
+}
+
+model TourPlanDetail {
+  id                    Int       @id @default(autoincrement())
+  tourPlanId            Int       @map("tour_plan_id")
+  planDate              DateTime  @map("plan_date") @db.Date
+  hqId                  Int?      @map("hq_id")
+  areaId                Int?      @map("area_id")
+  workingTypeId         Int?      @map("working_type_id")
+  workingWithUserId     String?   @map("working_with_user_id") @db.VarChar(255)
+  objective             String?   @db.Text
+  nightHalt             String?   @map("night_halt") @db.VarChar(10) // "Yes" | "No"
+  remarks               String?   @db.Text
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  tourPlan              TourPlan     @relation(fields: [tourPlanId], references: [id], onDelete: Cascade)
+  area                  Area?        @relation(fields: [areaId], references: [id])
+  workingType           WorkingType? @relation(fields: [workingTypeId], references: [id])
+
+  dayPlans              DayPlan[]
+
+  @@map("tbl_tour_plan_details")
+}
+
+/// Granular day-level plan (targets) derived from a tour plan detail row
+model DayPlan {
+  id                    Int       @id @default(autoincrement())
+  mrId                  Int       @map("mr_id")
+  tourPlanDetailId      Int?      @map("tour_plan_detail_id")
+  planDate              DateTime  @map("plan_date") @db.Date
+  doctorTarget          Int?      @map("doctor_target")
+  chemistTarget         Int?      @map("chemist_target")
+  stockistTarget        Int?      @map("stockist_target")
+  startTime             DateTime? @map("start_time") @db.Time
+  endTime               DateTime? @map("end_time") @db.Time
+  remarks               String?   @db.Text
+  status                Int?      @default(1)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime? @updatedAt @map("updated_at")
+
+  mr                    User            @relation("DayPlanMr", fields: [mrId], references: [id])
+  tourPlanDetail        TourPlanDetail? @relation(fields: [tourPlanDetailId], references: [id])
+
+  @@map("tbl_day_plans")
+}
+
+// ============================================================================
+// TARGETS
+// ============================================================================
+
+model TargetMaster {
+  id            Int       @id @default(autoincrement())
+  targetMonth   Int       @map("target_month")
+  targetYear    Int       @map("target_year")
+  title         String?   @db.VarChar(150)
+  status        Int       @default(1)
+  createdBy     Int?      @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  details       TargetDetail[]
+
+  @@map("tbl_target_master")
+}
+
+model TargetDetail {
+  id               Int      @id @default(autoincrement())
+  targetMasterId   Int      @map("target_master_id")
+  mrUserId         Int      @map("mr_user_id")
+  productId        Int      @map("product_id")
+  targetQty        Int?     @map("target_qty")
+  targetValue      Decimal? @map("target_value") @db.Decimal(12, 2)
+  createdBy        Int?     @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  targetMaster     TargetMaster @relation(fields: [targetMasterId], references: [id], onDelete: Cascade)
+  mrUser           User         @relation("TargetMr", fields: [mrUserId], references: [id])
+  product          Product      @relation(fields: [productId], references: [id])
+
+  @@map("tbl_target_details")
+}
+
+// ============================================================================
+// MESSAGES & NOTICES
+// ============================================================================
+
+model Message {
+  id             Int       @id @default(autoincrement())
+  senderUserId   Int       @map("sender_user_id")
+  subject        String    @db.VarChar(255)
+  message        String    @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  sender         User               @relation("MessageSender", fields: [senderUserId], references: [id])
+  receivers      MessageReceiver[]
+
+  @@map("tbl_messages")
+}
+
+model MessageReceiver {
+  id               Int       @id @default(autoincrement())
+  messageId        Int       @map("message_id")
+  receiverUserId   Int       @map("receiver_user_id")
+  isRead           Int       @default(0) @map("is_read")
+  readAt           DateTime? @map("read_at")
+
+  message          Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  receiver         User      @relation("MessageReceiverUser", fields: [receiverUserId], references: [id])
+
+  @@map("tbl_message_receivers")
+}
+
+model Notice {
+  id           Int       @id @default(autoincrement())
+  title        String    @db.VarChar(255)
+  message      String    @db.Text
+  noticeType   String?   @map("notice_type") @db.VarChar(50)
+  startDate    DateTime? @map("start_date") @db.Date
+  endDate      DateTime? @map("end_date") @db.Date
+  status       Int       @default(1)
+  createdBy    Int?      @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedBy    Int?      @map("updated_by")
+  updatedAt    DateTime? @updatedAt @map("updated_at")
+
+  @@map("tbl_notices")
+}
