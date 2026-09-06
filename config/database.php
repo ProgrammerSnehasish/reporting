@@ -40,13 +40,16 @@ $pass     = $dbParts['pass'] ?? "npg_HOch14EmMaDQ";
 $dbname   = ltrim($dbParts['path'] ?? 'neondb', '/');
 $sslmode  = "require";
 
+// Extract Endpoint ID for environments with older libpq (SNI support missing)
+$endpoint = explode('.', $host)[0];
+
 // 3. PostgreSQL Connection String
-$conn_string = "host={$host} port={$port} dbname={$dbname} user={$user} password={$pass} sslmode={$sslmode}";
+$conn_string = "host={$host} port={$port} dbname={$dbname} user={$user} password={$pass} sslmode={$sslmode} options='endpoint={$endpoint}'";
 
 // 4. Initialize PDO Connection ($pdo)
 $pdo = null;
 try {
-    $dsn = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode={$sslmode}";
+    $dsn = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode={$sslmode};options='endpoint={$endpoint}'";
     $pdo = new PDO($dsn, $user, $pass, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,

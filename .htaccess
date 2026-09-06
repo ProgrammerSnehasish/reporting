@@ -1,0 +1,11 @@
+# 1. Set Directory Index
+DirectoryIndex index.php index.html
+
+# 2. Disable directory browsing
+Options -Indexes
+
+# 3. Protect sensitive files (.env, .git, etc.)
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
