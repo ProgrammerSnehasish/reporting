@@ -31,17 +31,7 @@ $sql = "SELECT
         WHERE u.username = ?
         LIMIT 1";
 
-$stmt = mysqli_prepare($conn, $sql);
-
-if (!$stmt) {
-    die(mysqli_error($conn));
-}
-
-mysqli_stmt_bind_param($stmt, "s", $username);
-mysqli_stmt_execute($stmt);
-
-$result = mysqli_stmt_get_result($stmt);
-$user = mysqli_fetch_assoc($result);
+$user = db_fetch_one($sql, [$username]);
 
 if (!$user) {
     $_SESSION['error'] = "Invalid Username or Password.";
@@ -68,16 +58,13 @@ session_regenerate_id(true);
 $ip = $_SERVER['REMOTE_ADDR'] ?? '';
 $device = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
-$update = mysqli_prepare($conn, "
+db_query("
     UPDATE tbl_users
     SET last_login = NOW(),
         login_ip = ?,
         login_device = ?
     WHERE id = ?
-");
-
-mysqli_stmt_bind_param($update, "ssi", $ip, $device, $user['id']);
-mysqli_stmt_execute($update);
+", [$ip, $device, $user['id']]);
 
 /* Create Session */
 $_SESSION['logged_in'] = true;
